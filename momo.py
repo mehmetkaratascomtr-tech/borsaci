@@ -84,40 +84,33 @@ DEFAULT_TICKERS = [
 ]
 
 # ─── FONKSİYON ─────────────────────────────────────────────────────────────────
-def compute_composite_score(rsi, rvol, macd_hist, ema_cross, atr_pct, above_sma200):
+def compute_composite_score(rsi, rvol, macd_hist, ema_cross, atr_pct, above_sma200, daily_change):
     """
     Composite skor 0–100 arası.
-    Her bileşen kendi ağırlığıyla katkı sağlar.
+    Ağırlıklar: RSI 25 | EMA Cross 25 | MACD 20 | ATR 15 | RVOL 15 | SMA200 bonus 5
     """
     score = 0
 
-    # 1) RSI (25 puan): 30-50 arası ideal giriş
-    if 28 <= rsi <= 50:
+    # 1) RSI (25 puan): 30-55 arası ideal intraday giriş bölgesi
+    if 30 <= rsi <= 55:
         score += 25
-    elif 50 < rsi <= 60:
-        score += 15
-    elif rsi < 28:
-        score += 10  # aşırı satım, dikkat
+    elif 55 < rsi <= 65:
+        score += 12   # koşmaya başlamış, dikkat
+    elif rsi < 30:
+        score += 8    # aşırı satım, dip avı riski var
+    # RSI > 65 → 0 puan (zaten koşmuş, geç kalınmış)
 
-    # 2) RVOL (25 puan): hacim onayı
-    if rvol >= 2.0:
+    # 2) EMA Cross (25 puan): EMA20 > EMA50 → kısa vade trend sağlıklı
+    if ema_cross:
         score += 25
-    elif rvol >= 1.5:
-        score += 18
-    elif rvol >= 1.2:
-        score += 10
 
     # 3) MACD Histogram (20 puan): momentum yönü
     if macd_hist > 0:
         score += 20
-    elif macd_hist > -0.5:
-        score += 8
+    elif macd_hist > -0.3:
+        score += 8    # nötr bölge
 
-    # 4) EMA Cross (15 puan): EMA20 > EMA50
-    if ema_cross:
-        score += 15
-
-    # 5) ATR% (15 puan): gün içi %2 hedefe ulaşabilecek volatilite
+    # 4) ATR% (15 puan): gün içi %2 hedefe ulaşabilecek volatilite
     if atr_pct >= 2.5:
         score += 15
     elif atr_pct >= 1.8:
@@ -125,9 +118,21 @@ def compute_composite_score(rsi, rvol, macd_hist, ema_cross, atr_pct, above_sma2
     elif atr_pct >= 1.2:
         score += 5
 
+    # 5) RVOL (15 puan): hacim onayı — tek başına skoru patlatmamalı
+    if rvol >= 2.0:
+        score += 15
+    elif rvol >= 1.5:
+        score += 10
+    elif rvol >= 1.2:
+        score += 5
+
     # Bonus: SMA200 üstündeyse +5
     if above_sma200:
         score = min(100, score + 5)
+
+    # Ceza: Günlük -%5'ten fazla düşmüşse -20 (düşen bıçak riski)
+    if daily_change <= -5:
+        score = max(0, score - 20)
 
     return score
 
@@ -194,13 +199,18 @@ def fetch_data(ticker_list, progress_bar):
             ema_cross = last_ema20 > last_ema50
 
             # Composite skor
-            score = compute_composite_score(last_rsi, rvol, macd_hist, ema_cross, atr_pct, above_sma200)
+            score = compute_composite_score(last_rsi, rvol, macd_hist, ema_cross, atr_pct, above_sma200, daily_change)
 
             # Trend
             trend = "↑ Yükseliş" if above_sma200 else "↓ Düşüş"
 
-            # Sinyal
-            if score >= 70:
+            # Sinyal — RSI > 65 veya günlük düşüş > %5 → otomatik Geç
+            if last_rsi > 65 or daily_change <= -5:
+                if last_rsi > 65:
+                    signal = "⛔ Geç (Koşmuş)"
+                else:
+                    signal = "⛔ Geç (Düşen Bıçak)"
+            elif score >= 70:
                 signal = "🔥 GÜÇLÜ AL"
             elif score >= 50:
                 signal = "🟢 AL"
@@ -234,19 +244,23 @@ def fetch_data(ticker_list, progress_bar):
 # ─── SIDEBAR ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### ⚙️ Filtreler")
-    min_score  = st.slider("Minimum Skor", 0, 100, 50, step=5)
-    min_rvol   = st.slider("Min. RVOL", 0.5, 3.0, 1.2, step=0.1)
-    min_atr    = st.slider("Min. ATR %", 0.0, 4.0, 1.2, step=0.1)
-    only_trend = st.checkbox("Sadece SMA200 üstü", value=True)
+    min_score    = st.slider("Minimum Skor", 0, 100, 50, step=5)
+    min_rvol     = st.slider("Min. RVOL", 0.5, 3.0, 1.2, step=0.1)
+    min_atr      = st.slider("Min. ATR %", 0.0, 4.0, 1.2, step=0.1)
+    max_daily_drop = st.slider("Maks. Günlük Düşüş %", -10.0, 0.0, -5.0, step=0.5,
+                                help="Bu değerden fazla düşmüş hisseler elenir (düşen bıçak koruması)")
+    only_trend   = st.checkbox("Sadece SMA200 üstü", value=True)
 
     st.markdown("---")
     st.markdown("### ℹ️ Gösterge Rehberi")
     st.markdown("""
-**RSI 30–50** → İdeal giriş bölgesi  
+**RSI 30–55** → İdeal giriş bölgesi  
+**RSI > 65** → Koşmuş, girme  
 **RVOL ≥ 1.5** → Hacim onaylı hareket  
 **MACD Hist > 0** → Yukarı momentum  
 **EMA 20 > 50** → Kısa vade trend sağlıklı  
 **ATR % ≥ 1.8** → %2 hedefe ulaşabilir  
+**Günlük < -5%** → Düşen bıçak, atla  
 **Skor ≥ 70** → Güçlü al sinyali
     """)
 
@@ -288,7 +302,9 @@ if run:
     filtered = data[
         (data['Skor /100'] >= min_score) &
         (data['RVOL']      >= min_rvol) &
-        (data['ATR %']     >= min_atr)
+        (data['ATR %']     >= min_atr) &
+        (data['Günlük %']  >= max_daily_drop) &
+        (~data['Sinyal'].str.contains('Geç'))
     ]
     if only_trend:
         filtered = filtered[filtered['Trend'] == '↑ Yükseliş']
