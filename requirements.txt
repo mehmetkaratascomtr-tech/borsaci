@@ -1,2 +1,2 @@
 yfinance
-pandas_ta
+pandas.ta
