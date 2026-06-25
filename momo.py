@@ -111,10 +111,11 @@ def check_tradingview_filters(df, close, high, low):
 
     try:
         # Aroon Up yüksek (>70), Down düşük (<30)
+        # pandas_ta kolon isimleri: AROONU_14, AROOND_14
         aroon_df = ta.aroon(high, low, length=14)
         if aroon_df is not None:
-            up_col   = [c for c in aroon_df.columns if 'UP' in c.upper() or 'up' in c]
-            down_col = [c for c in aroon_df.columns if 'DOWN' in c.upper() or 'dn' in c.lower()]
+            up_col   = [c for c in aroon_df.columns if 'AROONU' in c.upper()]
+            down_col = [c for c in aroon_df.columns if 'AROOND' in c.upper() and 'OSC' not in c.upper()]
             aroon_up   = float(aroon_df[up_col[0]].iloc[-1])   if up_col   else 0
             aroon_down = float(aroon_df[down_col[0]].iloc[-1]) if down_col else 100
             results['Aroon↑']   = aroon_up > 70
