@@ -69,7 +69,7 @@ if st.button('Hisseleri Tara ve Analiz Et'):
         elif "DİKKAT" in val: color = 'red'
         return f'background-color: {color}; color: black'
 
-    st.dataframe(data.style.applymap(color_signal, subset=['Sinyal']))
+    st.dataframe(data.style.map(color_signal, subset=['Sinyal']))
 
     # Öne Çıkanlar
     col1, col2 = st.columns(2)
